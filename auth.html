@@ -29,24 +29,30 @@
             background: var(--gray-100);
             color: var(--gray-600);
             transition: all 0.3s ease;
+            display: grid;
+            place-items: center;
         }
 
         .auth-container {
             display: flex;
             justify-content: center;
             align-items: center;
+            width: 100%;
             min-height: 100vh;
             padding: 1rem;
+            box-sizing: border-box;
         }
 
         .auth-card {
             background: var(--white);
-            padding: 2rem;
+            padding: 2.5rem;
             border-radius: 1rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             width: 100%;
             max-width: 400px;
             position: relative;
+            margin: auto;
+            transform: translateY(-2vh); /* Slight upward adjustment for visual balance */
         }
 
         .theme-toggle {
@@ -181,6 +187,7 @@
     <!-- Firebase SDK -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-app-compat.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-auth-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.22.0/firebase-firestore-compat.min.js"></script>
     
     <script>
         // Initialize Firebase with your config
@@ -194,7 +201,17 @@
             measurementId: "G-B063KWXXDB"
         };
 
+        // Initialize Firebase and Firestore
         firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+
+        // Check Firestore connectivity
+        db.collection('_connection_test_').doc('test').set({
+            timestamp: new Date().toISOString(),
+            test: 'This is a connectivity test'
+        })
+        .then(() => console.log('Firestore connection successful'))
+        .catch(error => console.error('Firestore connection error:', error));
 
         // Check if user is already logged in
         firebase.auth().onAuthStateChanged((user) => {
@@ -213,44 +230,123 @@
             });
         });
 
-        // Login form
-        document.getElementById('loginForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            const errorElement = document.getElementById('loginError');
-
-            firebase.auth().signInWithEmailAndPassword(email, password)
-                .then(() => {
-                    window.location.href = 'index.html';
-                })
-                .catch((error) => {
-                    errorElement.textContent = error.message;
-                    errorElement.style.display = 'block';
-                });
-        });
-
-        // Signup form
-        document.getElementById('signupForm').addEventListener('submit', (e) => {
+        // Update Signup form handler with improved error handling and loading state
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('signupName').value;
             const email = document.getElementById('signupEmail').value;
             const password = document.getElementById('signupPassword').value;
             const errorElement = document.getElementById('signupError');
-
-            firebase.auth().createUserWithEmailAndPassword(email, password)
-                .then((result) => {
-                    return result.user.updateProfile({
-                        displayName: name
-                    });
-                })
-                .then(() => {
-                    window.location.href = 'index.html';
-                })
-                .catch((error) => {
-                    errorElement.textContent = error.message;
-                    errorElement.style.display = 'block';
+            const submitButton = e.target.querySelector('button[type="submit"]');
+            
+            // Add loading state
+            submitButton.disabled = true;
+            submitButton.textContent = 'Creating account...';
+            
+            try {
+                // Create user in Authentication
+                console.log('Creating user auth account...');
+                const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                const user = userCredential.user;
+                console.log('User created in Auth:', user.uid);
+                
+                // Update user profile
+                console.log('Updating user profile...');
+                await user.updateProfile({
+                    displayName: name
                 });
+                console.log('Profile updated successfully');
+                
+                // Create user document in Firestore - add retry mechanism
+                console.log('Creating user document in Firestore...');
+                const userData = {
+                    uid: user.uid,
+                    name: name,
+                    email: email,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                };
+                
+                let firestoreSuccess = false;
+                let attempts = 0;
+                const maxAttempts = 3;
+                
+                while (!firestoreSuccess && attempts < maxAttempts) {
+                    attempts++;
+                    try {
+                        console.log(`Attempt ${attempts} to save user document...`);
+                        await db.collection('users').doc(user.uid).set(userData);
+                        firestoreSuccess = true;
+                        console.log('User document created successfully in Firestore');
+                    } catch (firestoreError) {
+                        console.error(`Firestore attempt ${attempts} failed:`, firestoreError);
+                        if (attempts === maxAttempts) {
+                            throw firestoreError;
+                        }
+                        // Wait before retrying
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+                
+                // Redirect only if everything was successful
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Signup error:', error);
+                errorElement.textContent = `Error: ${error.message}`;
+                errorElement.style.display = 'block';
+                
+                // Reset button
+                submitButton.disabled = false;
+                submitButton.textContent = 'Sign Up';
+                
+                // If auth was created but Firestore failed, we might need to clean up
+                try {
+                    const currentUser = firebase.auth().currentUser;
+                    if (currentUser) {
+                        console.log('Cleaning up partial signup...');
+                        await currentUser.delete();
+                        console.log('Auth user deleted after partial signup');
+                    }
+                } catch (cleanupError) {
+                    console.error('Error during cleanup:', cleanupError);
+                }
+            }
+        });
+
+        // Update Login form handler with similar enhancements
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const errorElement = document.getElementById('loginError');
+
+            try {
+                const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+                const user = userCredential.user;
+
+                // Check if user document exists, if not create it
+                const userDoc = await db.collection('users').doc(user.uid).get();
+                
+                if (!userDoc.exists) {
+                    await db.collection('users').doc(user.uid).set({
+                        uid: user.uid,
+                        email: user.email,
+                        name: user.displayName || 'User',
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    await db.collection('users').doc(user.uid).update({
+                        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Login error:', error); // Debug log
+                errorElement.textContent = error.message;
+                errorElement.style.display = 'block';
+            }
         });
 
         // Theme management

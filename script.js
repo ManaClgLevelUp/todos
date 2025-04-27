@@ -77,7 +77,25 @@ firebase.auth().onAuthStateChanged((user) => {
         return;
     }
     currentUser = user;
+    loadUserData();
 });
+
+function loadUserData() {
+    db.collection('users').doc(currentUser.uid).get()
+        .then((doc) => {
+            if (doc.exists) {
+                const userData = doc.data();
+                // Store user data or update UI as needed
+                loadCollections();
+                loadItems();
+            } else {
+                console.error('No user data found');
+            }
+        })
+        .catch((error) => {
+            console.error('Error loading user data:', error);
+        });
+}
 
 function initializeApp() {
     // Check for saved theme preference
@@ -284,18 +302,18 @@ function saveItem() {
 }
 
 function saveItemToFirebase() {
-    const isNote = document.querySelector('.modal-tabs .tab.active').dataset.target === 'note';
-
     const data = {
         userId: currentUser.uid,
-        type: isNote ? 'note' : 'task',
+        userEmail: currentUser.email,
+        userName: currentUser.displayName,
+        type: document.querySelector('.modal-tabs .tab.active').dataset.target,
         color: selectedColor,
         isArchived: false,
         isDeleted: false,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    if (isNote) {
+    if (data.type === 'note') {
         const title = document.getElementById('note-title').value;
         const content = document.getElementById('note-content').innerHTML;
         const tags = document.getElementById('note-tags').value.split(',')
@@ -375,6 +393,8 @@ function saveCollection() {
 
     db.collection('collections').add({
         userId: currentUser.uid,
+        userEmail: currentUser.email,
+        userName: currentUser.displayName,
         name: name,
         color: selectedColor,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
