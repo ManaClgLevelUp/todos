@@ -117,6 +117,24 @@ function setupEventListeners() {
     menuToggle.addEventListener('click', () => {
         sidebar.classList.toggle('active');
     });
+    
+    // Add sidebar close button functionality
+    const sidebarClose = document.getElementById('sidebar-close');
+    if (sidebarClose) {
+        sidebarClose.addEventListener('click', () => {
+            sidebar.classList.remove('active');
+        });
+    }
+    
+    // Close sidebar when clicking outside
+    document.addEventListener('click', (e) => {
+        if (sidebar.classList.contains('active') && 
+            !sidebar.contains(e.target) && 
+            e.target !== menuToggle && 
+            !menuToggle.contains(e.target)) {
+            sidebar.classList.remove('active');
+        }
+    });
 
     // Dark mode toggle
     darkModeToggle.addEventListener('click', () => {
@@ -191,15 +209,28 @@ function setupEventListeners() {
         }
     });
 
-    // Nav links
+    // Nav links with improved filtering
     navLinks.forEach(link => {
         link.addEventListener('click', (e) => {
             e.preventDefault();
             navLinks.forEach(l => l.classList.remove('active'));
             link.classList.add('active');
             currentCollection = link.dataset.section;
+            console.log('Switching to section:', currentCollection);
             filterItems();
         });
+    });
+
+    // Collection items with improved filtering
+    document.addEventListener('click', (e) => {
+        const collectionItem = e.target.closest('.collection-item');
+        if (collectionItem) {
+            const collectionId = collectionItem.dataset.id;
+            navLinks.forEach(l => l.classList.remove('active'));
+            currentCollection = collectionId;
+            console.log('Selecting collection:', currentCollection);
+            filterItems();
+        }
     });
 
     // Color options
@@ -256,11 +287,20 @@ function loadCollections() {
                 collectionEl.innerHTML = `
                     <div class="collection-color" style="background-color: ${collection.color}"></div>
                     <div class="collection-name">${collection.name}</div>
+                    <button class="collection-delete" data-id="${collection.id}">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 `;
-                collectionEl.addEventListener('click', () => {
+                
+                collectionEl.querySelector('.collection-name').addEventListener('click', () => {
                     currentCollection = collection.id;
                     navLinks.forEach(l => l.classList.remove('active'));
                     filterItems();
+                });
+
+                collectionEl.querySelector('.collection-delete').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteCollection(collection.id);
                 });
 
                 collectionsListContainer.appendChild(collectionEl);
@@ -302,18 +342,24 @@ function saveItem() {
 }
 
 function saveItemToFirebase() {
+    const isNote = document.querySelector('.modal-tabs .tab.active').dataset.target === 'note';
+
     const data = {
         userId: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: currentUser.displayName,
-        type: document.querySelector('.modal-tabs .tab.active').dataset.target,
+        type: isNote ? 'note' : 'task',
         color: selectedColor,
         isArchived: false,
         isDeleted: false,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     };
+    
+    // Add collection ID if a specific collection is selected
+    if (currentCollection && 
+        !['all', 'archive', 'trash', 'notes', 'tasks'].includes(currentCollection)) {
+        data.collectionId = currentCollection;
+    }
 
-    if (data.type === 'note') {
+    if (isNote) {
         const title = document.getElementById('note-title').value;
         const content = document.getElementById('note-content').innerHTML;
         const tags = document.getElementById('note-tags').value.split(',')
@@ -343,7 +389,8 @@ function saveItemToFirebase() {
         document.querySelectorAll('#task-list .task-item').forEach(taskItem => {
             taskItems.push({
                 text: taskItem.querySelector('.task-text').textContent,
-                completed: taskItem.querySelector('.task-checkbox').classList.contains('checked')
+                completed: taskItem.querySelector('.task-checkbox').classList.contains('checked'),
+                status: taskItem.querySelector('.task-status-dropdown').value
             });
         });
 
@@ -412,21 +459,39 @@ function saveCollection() {
 
 function addNewTask() {
     const taskText = newTaskInput.value.trim();
+    const taskStatus = document.getElementById('task-status').value;
 
     if (!taskText) return;
 
     const taskItem = document.createElement('li');
     taskItem.className = 'task-item';
     taskItem.innerHTML = `
-        <div class="task-checkbox"></div>
+        <div class="task-checkbox ${taskStatus === 'completed' ? 'checked' : ''}"></div>
         <div class="task-text">${taskText}</div>
-        <button class="task-delete" style="background: none; border: none; color: var(--gray-400); cursor: pointer;">
-            <i class="fas fa-times"></i>
-        </button>
+        <div class="task-actions">
+            <select class="task-status-dropdown">
+                <option value="pending" ${taskStatus === 'pending' ? 'selected' : ''}>Pending</option>
+                <option value="completed" ${taskStatus === 'completed' ? 'selected' : ''}>Completed</option>
+            </select>
+            <button class="task-delete">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
     `;
 
     taskItem.querySelector('.task-checkbox').addEventListener('click', function () {
         this.classList.toggle('checked');
+        const dropdown = taskItem.querySelector('.task-status-dropdown');
+        dropdown.value = this.classList.contains('checked') ? 'completed' : 'pending';
+    });
+
+    taskItem.querySelector('.task-status-dropdown').addEventListener('change', function () {
+        const checkbox = taskItem.querySelector('.task-checkbox');
+        if (this.value === 'completed') {
+            checkbox.classList.add('checked');
+        } else {
+            checkbox.classList.remove('checked');
+        }
     });
 
     taskItem.querySelector('.task-delete').addEventListener('click', function () {
@@ -435,10 +500,13 @@ function addNewTask() {
 
     taskList.appendChild(taskItem);
     newTaskInput.value = '';
+    document.getElementById('task-status').value = 'pending';
 }
 
 function filterItems() {
     const searchTerm = searchInput.value.toLowerCase();
+    console.log('Filtering items. Current collection:', currentCollection);
+    
     let filteredItems = items.filter(item => {
         // Filter by collection/section
         if (currentCollection !== 'all') {
@@ -446,6 +514,11 @@ function filterItems() {
             if (currentCollection === 'trash' && !item.isDeleted) return false;
             if (currentCollection === 'notes' && item.type !== 'note') return false;
             if (currentCollection === 'tasks' && item.type !== 'task') return false;
+            
+            // Handle custom collections - if not a special section, treat as collection ID
+            if (!['all', 'archive', 'trash', 'notes', 'tasks'].includes(currentCollection)) {
+                if (item.collectionId !== currentCollection) return false;
+            }
         }
 
         // Filter by tab
@@ -468,6 +541,7 @@ function filterItems() {
         return true;
     });
 
+    console.log(`Found ${filteredItems.length} items after filtering`);
     renderItems(filteredItems);
 }
 
@@ -605,6 +679,9 @@ function viewItem(item) {
                     <li class="task-item">
                         <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
                         <div class="task-text">${task.text}</div>
+                        <div class="task-status">
+                            <span class="status-badge ${task.status || 'pending'}">${task.status || 'Pending'}</span>
+                        </div>
                     </li>
                 `).join('') : ''}
             </ul>
@@ -651,10 +728,35 @@ function editCurrentItem() {
             taskItem.innerHTML = `
                 <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
                 <div class="task-text">${task.text}</div>
-                <button class="task-delete">
-                    <i class="fas fa-times"></i>
-                </button>
+                <div class="task-actions">
+                    <select class="task-status-dropdown">
+                        <option value="pending" ${(!task.status || task.status === 'pending') ? 'selected' : ''}>Pending</option>
+                        <option value="completed" ${task.status === 'completed' ? 'selected' : ''}>Completed</option>
+                    </select>
+                    <button class="task-delete">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
             `;
+            taskItem.querySelector('.task-checkbox').addEventListener('click', function () {
+                this.classList.toggle('checked');
+                const dropdown = taskItem.querySelector('.task-status-dropdown');
+                dropdown.value = this.classList.contains('checked') ? 'completed' : 'pending';
+            });
+
+            taskItem.querySelector('.task-status-dropdown').addEventListener('change', function () {
+                const checkbox = taskItem.querySelector('.task-checkbox');
+                if (this.value === 'completed') {
+                    checkbox.classList.add('checked');
+                } else {
+                    checkbox.classList.remove('checked');
+                }
+            });
+
+            taskItem.querySelector('.task-delete').addEventListener('click', function () {
+                taskItem.remove();
+            });
+
             taskList.appendChild(taskItem);
         });
     }
@@ -754,4 +856,43 @@ function closeCollectionModal() {
 
 function closeViewModal() {
     viewModal.classList.remove('active');
+}
+
+// Collection delete functionality
+function deleteCollection(collectionId) {
+    if (confirm('Are you sure you want to delete this collection?')) {
+        showLoading();
+        
+        // First update all items that use this collection to remove the reference
+        db.collection('items')
+            .where('collectionId', '==', collectionId)
+            .get()
+            .then(querySnapshot => {
+                const batch = db.batch();
+                
+                querySnapshot.forEach(doc => {
+                    batch.update(doc.ref, { collectionId: null });
+                });
+                
+                return batch.commit();
+            })
+            .then(() => {
+                // Then delete the collection
+                return db.collection('collections').doc(collectionId).delete();
+            })
+            .then(() => {
+                showToast('Collection deleted successfully', 'success');
+                loadCollections();
+                
+                // If we're currently filtering by this collection, reset to all
+                if (currentCollection === collectionId) {
+                    currentCollection = 'all';
+                    filterItems();
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting collection:', error);
+                hideLoading();
+            });
+    }
 }

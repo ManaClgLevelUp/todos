@@ -1,4 +1,3 @@
-
 :root {
     --primary: #6366f1;
     --primary-dark: #4f46e5;
@@ -51,11 +50,10 @@ body {
 }
 
 .logo {
+    position: relative;
     display: flex;
     align-items: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--gray-200);
+    padding: 1.5rem;
 }
 
 .logo-icon {
@@ -453,6 +451,98 @@ body {
 .task-checkbox.checked+.task-text {
     text-decoration: line-through;
     color: var(--gray-400);
+}
+
+/* Task status styles */
+.task-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.task-status-dropdown {
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    border: 1px solid var(--gray-200);
+    background-color: var(--white);
+    color: var(--gray-600);
+    font-size: 0.8rem;
+}
+
+.task-creator {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.task-status {
+    padding: 0.25rem;
+    margin-left: auto;
+}
+
+.status-badge {
+    padding: 0.15rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.7rem;
+    text-transform: capitalize;
+}
+
+.status-badge.pending {
+    background-color: var(--gray-200);
+    color: var(--gray-700);
+}
+
+.status-badge.completed {
+    background-color: #10b981;
+    color: white;
+}
+
+/* Collection management styles */
+.collections-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.collection-action {
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.collection-action:hover {
+    color: var(--primary);
+}
+
+.collection-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    margin-bottom: 0.25rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.collection-delete {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    cursor: pointer;
+    font-size: 0.8rem;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.collection-item:hover .collection-delete {
+    opacity: 1;
+}
+
+.collection-delete:hover {
+    color: #f43f5e;
 }
 
 /* Modal */
@@ -935,5 +1025,25 @@ body.dark-mode {
     .modal {
         width: 95%;
         max-height: 80vh;
+    }
+}
+
+/* Sidebar close button styles */
+.sidebar-close {
+    position: absolute;
+    right: 1rem;
+    top: 1.5rem;
+    background: none;
+    border: none;
+    color: var(--gray-400);
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: none; /* Hidden by default on all devices */
+}
+
+/* Only display the close button on mobile devices when sidebar is active */
+@media (max-width: 768px) {
+    .sidebar.active .sidebar-close {
+        display: block; /* Only visible on mobile when sidebar is active */
     }
 }
